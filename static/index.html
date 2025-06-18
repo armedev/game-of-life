@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebSocket Grid Painter</title>
+  <script src="https://unpkg.com/htmx.org@1.9.5"></script>
+  <script type="module" src="ws-client.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      max-width: 600px;
+      margin: auto;
+    }
+
+    #log {
+      border: 1px solid #ccc;
+      padding: 1rem;
+      height: 150px;
+      overflow-y: auto;
+      background: #f9f9f9;
+    }
+
+    .msg-in  { color: green; }
+    .msg-out { color: blue; }
+
+    canvas {
+      border: 1px solid #ccc;
+      display: block;
+      margin-top: 1rem;
+    }
+
+    form {
+      margin-top: 1rem;
+    }
+
+    input[type="text"] {
+      padding: 0.5rem;
+      width: 70%;
+    }
+
+    button {
+      padding: 0.5rem 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<h1>WebSocket Grid Painter</h1>
+
+<div id="log"></div>
+
+<form id="msg-form">
+  <input type="text" id="msg-input" placeholder="Type message" required>
+  <button type="submit">Send</button>
+</form>
+
+<canvas id="paint-canvas" width="400" height="400"></canvas>
+
+<p>Press <strong>P</strong> to paint a random cell via WebSocket.</p>
+
+</body>
+</html>
