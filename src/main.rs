@@ -1,6 +1,7 @@
 mod payload;
 mod protocol;
 
+use crate::payload::{WsPayload, create_binary_payload};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::{Router, routing::get};
@@ -12,9 +13,7 @@ use protocol::decode_ws_message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
-use tokio::sync::{RwLock, broadcast};
-
-use crate::payload::{WsPayload, create_binary_payload};
+use tokio::sync::{Mutex, broadcast};
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state))
@@ -25,12 +24,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     let mut rx = state.tx.subscribe();
 
-    let messages = state.messages.clone();
+    let stored_messages = state.messages.clone();
 
-    for message in messages.read().await.iter() {
-        if sink.send(message.clone()).await.is_err() {
-            return;
+    {
+        let messages = {
+            let locked_messages = stored_messages.lock().await;
+            locked_messages.clone()
         };
+
+        for message in messages {
+            if sink.send(message).await.is_err() {
+                return;
+            };
+        }
     }
 
     let mut send_task = tokio::spawn(async move {
@@ -53,7 +59,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let payload = WsPayload { parsed };
                         let encoded = payload.handle_payload();
                         if message_type == 42 {
-                            messages.write().await.push(encoded.clone());
+                            stored_messages.lock().await.push(encoded.clone());
                         }
                         if tx.send(encoded).is_err() {
                             break;
@@ -86,7 +92,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
 struct AppState {
     tx: broadcast::Sender<Message>,
-    messages: Arc<RwLock<Vec<Message>>>,
+    messages: Arc<Mutex<Vec<Message>>>,
 }
 
 #[tokio::main]
@@ -95,7 +101,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
 
     let tx = broadcast::Sender::<Message>::new(100);
-    let messages = Arc::new(RwLock::new(Vec::with_capacity(1600)));
+    let messages = Arc::new(Mutex::new(Vec::with_capacity(1600)));
 
     let app_state = Arc::new(AppState {
         tx: tx.clone(),
