@@ -1,98 +1,23 @@
 mod payload;
 mod protocol;
+mod socket;
+mod state;
 
-use crate::payload::{WsPayload, create_binary_payload};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::{Router, routing::get};
-use axum_tws::{Message, WebSocket, WebSocketUpgrade};
+use axum_tws::WebSocketUpgrade;
 use chrono::{Duration, Utc};
-use futures::SinkExt;
-use futures::StreamExt;
-use protocol::decode_ws_message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
-use tokio::sync::{Mutex, broadcast};
+
+use crate::payload::create_binary_payload;
+use crate::socket::handle_socket;
+use crate::state::AppState;
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state))
-}
-
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
-    let (mut sink, mut stream) = socket.split();
-
-    let mut rx = state.tx.subscribe();
-
-    let stored_messages = state.messages.clone();
-
-    {
-        let messages = {
-            let locked_messages = stored_messages.lock().await;
-            locked_messages.clone()
-        };
-
-        for message in messages {
-            if sink.send(message).await.is_err() {
-                return;
-            };
-        }
-    }
-
-    let mut send_task = tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            if sink.send(msg).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    let tx = state.tx.clone();
-
-    let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = stream.next().await {
-            if msg.is_binary() {
-                let data = msg.into_payload();
-                match decode_ws_message(data) {
-                    Ok(parsed) => {
-                        let message_type = parsed.msg_type.clone();
-                        let payload = WsPayload { parsed };
-                        let encoded = payload.handle_payload();
-                        if message_type == 42 {
-                            stored_messages.lock().await.push(encoded.clone());
-                        }
-                        if tx.send(encoded).is_err() {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("Failed to decode: {err}");
-                    }
-                }
-            } else if msg.is_text() {
-                if tx
-                    .send(Message::text("Only binary message is supported"))
-                    .is_err()
-                {
-                    break;
-                }
-
-                eprintln!("x: {:?}", msg.into_payload());
-                eprintln!("Only binary message is suuported");
-                break;
-            }
-        }
-    });
-
-    tokio::select! {
-        _ = &mut send_task => recv_task.abort(),
-        _ = &mut recv_task => send_task.abort(),
-    };
-}
-
-struct AppState {
-    tx: broadcast::Sender<Message>,
-    messages: Arc<Mutex<Vec<Message>>>,
 }
 
 #[tokio::main]
@@ -100,13 +25,9 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
 
-    let tx = broadcast::Sender::<Message>::new(100);
-    let messages = Arc::new(Mutex::new(Vec::with_capacity(1600)));
+    let app_state = Arc::new(AppState::new(100, 1600));
 
-    let app_state = Arc::new(AppState {
-        tx: tx.clone(),
-        messages,
-    });
+    let channel = app_state.channel.clone();
 
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -121,8 +42,8 @@ async fn main() {
                 .unwrap();
             let diff = (target_dt - Utc::now()).to_std().unwrap();
             thread::sleep(diff);
-            if tx.receiver_count() > 0 {
-                if let Err(e) = tx.send(create_binary_payload()) {
+            if channel.receiver_count() > 0 {
+                if let Err(e) = channel.send(create_binary_payload()) {
                     dbg!(e);
                     break;
                 }
