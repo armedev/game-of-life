@@ -49,8 +49,8 @@ impl SocketHandler {
     #[instrument(skip(self, sink), fields(connection_id = %self.connection_id, start_time))]
     pub async fn send_stored_messages(
         &self,
-        mut sink: SplitSink<WebSocket, Message>,
-    ) -> Result<SplitSink<WebSocket, Message>, SocketError> {
+        sink: &mut SplitSink<WebSocket, Message>,
+    ) -> Result<(), SocketError> {
         let start_time = Instant::now();
 
         let messages = {
@@ -73,7 +73,7 @@ impl SocketHandler {
             duration
         );
 
-        Ok(sink)
+        Ok(())
     }
 
     #[instrument(skip(self, stream, sink), fields(connection_id = %self.connection_id))]

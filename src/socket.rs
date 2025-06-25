@@ -11,21 +11,21 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let connection_id = Span::current().field("connection_id").unwrap();
     info!("New WebSocket connection established");
 
-    let (sink, stream) = socket.split();
+    let (mut sink, stream) = socket.split();
     let handler = SocketHandler::new(state, connection_id.to_string());
 
     // Send stored messages first
-    match handler.send_stored_messages(sink).await {
-        Ok(sink) => {
+    match handler.send_stored_messages(&mut sink).await {
+        Ok(_) => {
             debug!("Successfully sent stored messages to new connection");
             // Run the main handler
-            handler.run(stream, sink).await;
         }
         Err(e) => {
             error!("Failed to send stored messages to new connection: {}", e);
             return;
         }
     }
+    handler.run(stream, sink).await;
 
     info!("WebSocket connection terminated");
 }

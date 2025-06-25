@@ -10,9 +10,15 @@ const logMessage = (prefix, text, className = "") => {
   container.scrollTop = container.scrollHeight;
 };
 
-socket.addEventListener("open", () => logMessage("✓", "WebSocket connected", "msg-in"));
-socket.addEventListener("close", () => logMessage("×", "WebSocket closed", "msg-in"));
-socket.addEventListener("error", () => logMessage("!", "WebSocket error", "msg-in"));
+socket.addEventListener("open", () =>
+  logMessage("✓", "WebSocket connected", "msg-in"),
+);
+socket.addEventListener("close", () =>
+  logMessage("×", "WebSocket closed", "msg-in"),
+);
+socket.addEventListener("error", () =>
+  logMessage("!", "WebSocket error", "msg-in"),
+);
 
 const canvas = document.getElementById("paint-canvas");
 const ctx = canvas.getContext("2d");
