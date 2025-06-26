@@ -1,21 +1,14 @@
-use crate::protocol::{PROTOCOL_VERSION, WsMessage, encode_ws_message};
+use crate::{
+    constants::{CANVAS_WIDTH, HELLO_PAYLOAD, message_types},
+    patterns::{gol, mlp},
+    protocol::{PROTOCOL_VERSION, WsMessage, encode_ws_message},
+};
 use axum_tws::Message;
 use rand::Rng;
 use tracing::{debug, warn};
 
 pub struct WsPayload {
     pub parsed: WsMessage,
-}
-
-const CANVAS_WIDTH: u16 = 40;
-const CANVAS_HEIGHT: u16 = 40;
-const PIXEL_PAYLOAD_SIZE: usize = 7;
-const HELLO_PAYLOAD: &[u8] = b"hello";
-
-pub mod message_types {
-    pub const HELLO: u8 = 1;
-    pub const SEND_PIXEL: u8 = 42;
-    pub const DRAW_PIXEL: u8 = 100;
 }
 
 #[allow(dead_code)]
@@ -36,11 +29,41 @@ impl WsPayload {
             self.parsed.msg_type,
             self.parsed.payload.len()
         );
-
         match self.parsed.msg_type {
-            message_types::SEND_PIXEL => {
-                debug!("Generating pixel response for SEND_PIXEL message");
-                create_binary_payload()
+            message_types::CREATE_NEW_GOL_GENERATION => {
+                debug!("GOL: Creating a new generation");
+                gol::create_new_generation()
+            }
+            message_types::AWAKEN_RANDOM_GOL_CELL => {
+                debug!("GOL: Adding a random live cell to current generation");
+                gol::awaken_random_cell()
+            }
+            message_types::KILL_RANDOM_GOL_CELL => {
+                debug!("GOL: Killing a random cell of current generation");
+                gol::kill_random_cell()
+            }
+            message_types::ADVANCE_GOL_GENERATION => {
+                debug!("GOL: Advancing to next generation");
+                gol::advance_generation()
+            }
+            message_types::KILL_ALL_GOL_CELLS => {
+                debug!("GOL: Killing all the cells");
+                gol::kill_all_cells()
+            }
+            message_types::CREATE_NEW_MLP_PAINTING => {
+                debug!("MLP: Creating new painting canvas");
+                mlp::start_new_painting()
+            }
+            message_types::ADVANCE_MLP_PAINTING => {
+                let mut rng = rand::rng();
+                debug!("MLP: Advancing to next stroke");
+                mlp::apply_brush_strokes_batch(rng.random_range(0..CANVAS_WIDTH as usize))
+            }
+            message_types::REQUEST_RANDOM_COLORED_PIXEL => {
+                let x = self.parsed.payload[0];
+                let y = self.parsed.payload[1];
+                debug!("GOL: Adding a live cell to current generation");
+                gol::awaken_cell(x as u16, y as u16)
             }
             message_types::HELLO => {
                 debug!("Processing HELLO message");
@@ -62,52 +85,4 @@ impl WsPayload {
         };
         encode_ws_message(&response)
     }
-}
-
-pub fn create_binary_payload() -> Message {
-    create_random_pixel_message()
-}
-
-pub fn create_random_pixel_message() -> Message {
-    let mut rng = rand::rng();
-
-    let x: u16 = rng.random_range(0..CANVAS_WIDTH);
-    let y: u16 = rng.random_range(0..CANVAS_HEIGHT);
-    let r: u8 = rng.random();
-    let g: u8 = rng.random();
-    let b: u8 = rng.random();
-
-    debug!(
-        "Generated random pixel: ({}, {}) RGB({}, {}, {})",
-        x, y, r, g, b
-    );
-    create_pixel_message(x, y, r, g, b)
-}
-
-pub fn create_pixel_message(x: u16, y: u16, r: u8, g: u8, b: u8) -> Message {
-    if x >= CANVAS_WIDTH || y >= CANVAS_HEIGHT {
-        panic!(
-            "Pixel coordinates out of bounds: ({}, {}) max: ({}, {})",
-            x,
-            y,
-            CANVAS_WIDTH - 1,
-            CANVAS_HEIGHT - 1
-        );
-    }
-
-    let mut payload = Vec::with_capacity(PIXEL_PAYLOAD_SIZE);
-    payload.extend_from_slice(&x.to_be_bytes());
-    payload.extend_from_slice(&y.to_be_bytes());
-    payload.push(r);
-    payload.push(g);
-    payload.push(b);
-
-    let msg = WsMessage {
-        version: PROTOCOL_VERSION,
-        msg_type: message_types::DRAW_PIXEL,
-        flags: 0,
-        payload,
-    };
-
-    encode_ws_message(&msg)
 }

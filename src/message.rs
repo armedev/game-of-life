@@ -10,9 +10,8 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
-    payload::{WsPayload, message_types},
-    protocol::decode_ws_message,
-    state::AppState,
+    constants::message_types, patterns::gol::current_generation, payload::WsPayload,
+    protocol::decode_ws_message, state::AppState,
 };
 
 /// Custom error types for better error handling
@@ -47,30 +46,20 @@ impl SocketHandler {
     }
 
     #[instrument(skip(self, sink), fields(connection_id = %self.connection_id, start_time))]
-    pub async fn send_stored_messages(
+    pub async fn send_current_generation(
         &self,
         sink: &mut SplitSink<WebSocket, Message>,
     ) -> Result<(), SocketError> {
-        let start_time = Instant::now();
+        sink.send(current_generation()).await.map_err(|e| {
+            SocketError::SendError(format!(
+                "Failed to send current generation: connection_id: {},  {}",
+                self.connection_id, e
+            ))
+        })?;
 
-        let messages = {
-            let locked_messages = self.state.messages.lock().await;
-            let count = locked_messages.len();
-            debug!("Sending {} stored messages to new connection", count);
-            locked_messages.clone()
-        };
-
-        for (index, message) in messages.iter().enumerate() {
-            sink.send(message.clone()).await.map_err(|e| {
-                SocketError::SendError(format!("Failed to send stored message {}: {}", index, e))
-            })?;
-        }
-
-        let duration = start_time.elapsed();
-        info!(
-            "Successfully sent {} stored messages in {:?}",
-            messages.len(),
-            duration
+        debug!(
+            "Successfully sent current generation to client: connection_id: {}",
+            self.connection_id
         );
 
         Ok(())
@@ -92,7 +81,7 @@ impl SocketHandler {
         });
 
         // Spawn sender task (from socket to channel)
-        let send_handler = ChannelSender::new(self.state, self.connection_id.clone());
+        let send_handler = ChannelSender::new(self.connection_id.clone());
         let mut send_task = tokio::spawn(async move {
             if let Err(e) = send_handler.run(stream, channel).await {
                 error!("Socket sender error: {}", e);
@@ -183,16 +172,14 @@ impl ChannelReceiver {
 
 /// Handles receiving messages from socket and sending to broadcast channel
 struct ChannelSender {
-    state: Arc<AppState>,
     connection_id: String,
     message_count: u64,
     last_activity: Instant,
 }
 
 impl ChannelSender {
-    fn new(state: Arc<AppState>, connection_id: String) -> Self {
+    fn new(connection_id: String) -> Self {
         Self {
-            state,
             connection_id,
             message_count: 0,
             last_activity: Instant::now(),
@@ -265,22 +252,28 @@ impl ChannelSender {
                 let payload = WsPayload { parsed };
                 let encoded = payload.handle_payload();
 
-                // Store SEND_PIXEL messages
-                if message_type == message_types::SEND_PIXEL {
-                    let mut messages = self.state.messages.lock().await;
-                    messages.push(encoded.clone());
-                    debug!(
-                        "Stored SEND_PIXEL message (total stored: {})",
-                        messages.len()
-                    );
-                }
-
                 // Broadcast to all connected clients
                 channel_sender
                     .send(encoded)
                     .context("Failed to broadcast message")?;
 
-                debug!("Successfully processed and broadcasted binary message");
+                let msg_type_name = match message_type {
+                    t if t == message_types::CREATE_NEW_GOL_GENERATION => {
+                        "CREATE_NEW_GOL_GENERATION"
+                    }
+                    t if t == message_types::AWAKEN_RANDOM_GOL_CELL => "AWAKEN_RANDOM_GOL_CELL",
+                    t if t == message_types::KILL_RANDOM_GOL_CELL => "KILL_RANDOM_GOL_CELL",
+                    t if t == message_types::ADVANCE_GOL_GENERATION => "AWAKEN_RANDOM_GOL_CELL",
+
+                    t if t == message_types::CREATE_NEW_MLP_PAINTING => "CREATE_NEW_MLP_PAINTING",
+                    t if t == message_types::ADVANCE_MLP_PAINTING => "ADVANCE_MLP_PAINTING",
+
+                    _ => "OTHER",
+                };
+                debug!(
+                    "Successfully processed and broadcasted {} message",
+                    msg_type_name
+                );
             }
             Err(err) => {
                 error!(

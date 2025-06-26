@@ -1,8 +1,11 @@
+mod constants;
 mod message;
+mod patterns;
 mod payload;
 mod protocol;
 mod socket;
 mod state;
+mod utils;
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -15,7 +18,7 @@ use std::thread;
 use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::payload::create_binary_payload;
+use crate::patterns::gol::advance_generation;
 use crate::socket::handle_socket;
 use crate::state::AppState;
 
@@ -23,6 +26,8 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) ->
     info!("New WebSocket connection attempt");
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
+
+const SCHEDULER_RUN: bool = false;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    let app_state = Arc::new(AppState::new(100, 1600));
+    let app_state = Arc::new(AppState::new(100));
     info!("Application state initialized");
 
     let channel = app_state.channel.clone();
@@ -53,69 +58,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(app_state)
         .fallback_service(axum_static::static_router("static"));
 
-    // Spawn background task for periodic message generation
-    let broadcast_handle = thread::spawn(move || {
-        info!("Starting periodic message broadcaster");
-        let mut target_dt = Utc::now();
-        let mut consecutive_errors = 0;
-        const MAX_CONSECUTIVE_ERRORS: u32 = 10;
+    if SCHEDULER_RUN {
+        // Spawn background task for periodic message generation
+        thread::spawn(move || {
+            info!("Starting periodic message broadcaster");
+            let mut target_dt = Utc::now();
+            let mut consecutive_errors = 0;
+            const MAX_CONSECUTIVE_ERRORS: u32 = 10;
 
-        loop {
-            target_dt = target_dt
-                .checked_add_signed(Duration::milliseconds(100))
-                .unwrap();
+            loop {
+                target_dt = target_dt
+                    .checked_add_signed(Duration::milliseconds(100))
+                    .unwrap();
 
-            let diff = match (target_dt - Utc::now()).to_std() {
-                Ok(duration) => duration,
-                Err(e) => {
-                    warn!("Time calculation error: {}, using 100ms default", e);
-                    std::time::Duration::from_millis(100)
-                }
-            };
-
-            thread::sleep(diff);
-
-            if channel.receiver_count() > 0 {
-                match channel.send(create_binary_payload()) {
-                    Ok(_) => {
-                        consecutive_errors = 0;
-                        debug!(
-                            "Broadcasted message to {} receivers",
-                            channel.receiver_count()
-                        );
-                    }
+                let diff = match (target_dt - Utc::now()).to_std() {
+                    Ok(duration) => duration,
                     Err(e) => {
-                        consecutive_errors += 1;
-                        error!(
-                            "Failed to broadcast message (attempt {}): {}",
-                            consecutive_errors, e
-                        );
+                        warn!("Time calculation error: {}, using 100ms default", e);
+                        std::time::Duration::from_millis(100)
+                    }
+                };
 
-                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                            error!(
-                                "Too many consecutive broadcast errors, shutting down broadcaster"
+                thread::sleep(diff);
+
+                if channel.receiver_count() > 0 {
+                    match channel.send(advance_generation()) {
+                        Ok(_) => {
+                            consecutive_errors = 0;
+                            debug!(
+                                "Broadcasted message to {} receivers",
+                                channel.receiver_count()
                             );
-                            break;
+                        }
+                        Err(e) => {
+                            consecutive_errors += 1;
+                            error!(
+                                "Failed to broadcast message (attempt {}): {}",
+                                consecutive_errors, e
+                            );
+
+                            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                                error!(
+                                    "Too many consecutive broadcast errors, shutting down broadcaster"
+                                );
+                                break;
+                            }
                         }
                     }
+                } else {
+                    trace!("No active receivers, skipping broadcast");
                 }
-            } else {
-                trace!("No active receivers, skipping broadcast");
             }
-        }
 
-        warn!("Periodic message broadcaster shutting down");
-    });
+            warn!("Periodic message broadcaster shutting down");
+        });
+    }
 
     info!("Server running at {}", addr);
-
     let server_result = axum::serve(listener, app).await;
 
     // Cleanup
     warn!("Server shutting down");
-    if broadcast_handle.join().is_err() {
-        error!("Failed to cleanly shutdown broadcast thread");
-    }
 
     server_result.map_err(|e| {
         error!("Server error: {}", e);

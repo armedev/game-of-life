@@ -1,63 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>WebSocket Grid Painter</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Canvas Client</title>
   <script src="https://unpkg.com/htmx.org@1.9.5"></script>
-  <script type="module" src="ws-client.js"></script>
-  <style>
-    body {
-      font-family: sans-serif;
-      padding: 2rem;
-      max-width: 600px;
-      margin: auto;
-    }
-
-    #log {
-      border: 1px solid #ccc;
-      padding: 1rem;
-      height: 150px;
-      overflow-y: auto;
-      background: #f9f9f9;
-    }
-
-    .msg-in  { color: green; }
-    .msg-out { color: blue; }
-
-    canvas {
-      border: 1px solid #ccc;
-      display: block;
-      margin-top: 1rem;
-    }
-
-    form {
-      margin-top: 1rem;
-    }
-
-    input[type="text"] {
-      padding: 0.5rem;
-      width: 70%;
-    }
-
-    button {
-      padding: 0.5rem 1rem;
-    }
-  </style>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          align-items: center;
+        }
+        #paint-canvas {
+            border: 1px solid #ccc;
+            display: block;
+            margin: 20px 0;
+        }
+        #log {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            background: #f9f9f9;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .msg-in { color: blue; }
+        .msg-out { color: green; }
+        .msg-error { color: red; }
+        .controls {
+            margin: 10px 0;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+        }
+        #msg-form {
+            margin: 10px 0;
+        }
+        #msg-input {
+            width: 300px;
+            padding: 5px;
+        }
+    </style>
 </head>
 <body>
+    <h1>WebSocket Canvas Client</h1>
+    
+    <div class="controls">
+        <button id="n">New Generation (N)</button>
+        <button id="a">Awaken random cell (A)</button>
+        <button id="k">Kill random cell (K)</button>
+        <button id="e">Kill all cells (E)</button>
+        <button id="s">Advance Generation (S)</button>
 
-<h1>WebSocket Grid Painter</h1>
+        <button id="m">Create new monalisa painting (M)</button>
+        <button id="b">Add a stroke to painting (B)</button>
 
-<div id="log"></div>
-
-<form id="msg-form">
-  <input type="text" id="msg-input" placeholder="Type message" required>
-  <button type="submit">Send</button>
-</form>
-
-<canvas id="paint-canvas" width="400" height="400"></canvas>
-
-<p>Press <strong>P</strong> to paint a random cell via WebSocket.</p>
-
+        <button id="c">Clear my canvas (C)</button>
+    </div>
+    
+    <canvas id="paint-canvas" width="800" height="800"></canvas>
+    
+    <form id="msg-form">
+        <input type="text" id="msg-input" placeholder="Type a message..." />
+        <button type="submit">Send</button>
+    </form>
+    
+    <div id="log"></div>
+  <script type="module" src="ws-client.js"></script>
 </body>
 </html>

@@ -15,7 +15,7 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let handler = SocketHandler::new(state, connection_id.to_string());
 
     // Send stored messages first
-    match handler.send_stored_messages(&mut sink).await {
+    match handler.send_current_generation(&mut sink).await {
         Ok(_) => {
             debug!("Successfully sent stored messages to new connection");
             // Run the main handler
